@@ -1,0 +1,82 @@
+ .../Runtime/RenderCore/Public/RendererInterface.h    |  5 +++++
+ .../Renderer/Private/DeferredShadingRenderer.cpp     | 20 ++++++++++++++++++++
+ .../Source/Runtime/Renderer/Private/RendererModule.h |  8 ++++++++
+ 3 files changed, 33 insertions(+)
+
+diff --git a/Engine/Source/Runtime/RenderCore/Public/RendererInterface.h b/Engine/Source/Runtime/RenderCore/Public/RendererInterface.h
+index 3c65b24412b..98e9c0141bc 100644
+--- a/Engine/Source/Runtime/RenderCore/Public/RendererInterface.h
++++ b/Engine/Source/Runtime/RenderCore/Public/RendererInterface.h
+@@ -703,5 +703,10 @@ public:
+ 
+ 	/** Evict all data from virtual texture caches*/
+ 	virtual void FlushVirtualTextureCache() = 0;
++
++	// [com] ----
++	DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnRender3DFinishDelegate, FRHICommandListImmediate& /*RHICmdList*/, const FTexture2DRHIRef& /*SceneTexture*/, const FIntRect& /*ViewRect*/);
++	virtual FOnRender3DFinishDelegate& GetOnRender3DFinishDelegate() = 0;
++	// ---- [com]
+ };
+ 
+diff --git a/Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp b/Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp
+index 0dd6cb58f14..0d69137f8a4 100644
+--- a/Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp
++++ b/Engine/Source/Runtime/Renderer/Private/DeferredShadingRenderer.cpp
+@@ -2050,6 +2050,25 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
+ 		SceneContext.AdjustGBufferRefCount(RHICmdList, -1);
+ 	}
+ 
++	// [com] ----
++	{
++		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ++ViewIndex)
++		{
++			FViewInfo& View = Views[ViewIndex];
++
++			// ViewがGame設定の分だけ
++			if (View.bIsGameView && View.Family && View.Family->RenderTarget)
++			{
++				const FTexture2DRHIRef& Target = View.Family->RenderTarget->GetRenderTargetTexture();
++				if (Target)
++				{
++					GetRendererModule().GetOnRender3DFinishDelegate().Broadcast(RHICmdList, Target, View.CameraConstrainedViewRect);
++				}
++			}
++		}
++	}
++	// ---- [com]
++
+ 	for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
+ 	{
+ 		ShaderPrint::EndView(Views[ViewIndex]);
+@@ -2086,6 +2105,7 @@ void FDeferredShadingSceneRenderer::Render(FRHICommandListImmediate& RHICmdList)
+ 		RenderFinish(RHICmdList);
+ 		RHICmdList.SetCurrentStat(GET_STATID(STAT_CLM_AfterFrame));
+ 	}
++
+ 	ServiceLocalQueue();
+ }
+ 
+diff --git a/Engine/Source/Runtime/Renderer/Private/RendererModule.h b/Engine/Source/Runtime/Renderer/Private/RendererModule.h
+index ffe23cc5992..d5e327c81c8 100644
+--- a/Engine/Source/Runtime/Renderer/Private/RendererModule.h
++++ b/Engine/Source/Runtime/Renderer/Private/RendererModule.h
+@@ -105,11 +105,19 @@ public:
+ 	virtual void RequestVirtualTextureTilesForRegion(IAllocatedVirtualTexture* AllocatedVT, const FVector2D& InScreenSpaceSize, const FIntRect& InTextureRegion, int32 InMipLevel) override;
+ 	virtual void LoadPendingVirtualTextureTiles(FRHICommandListImmediate& RHICmdList, ERHIFeatureLevel::Type FeatureLevel) override;
+ 	virtual void FlushVirtualTextureCache() override;
++
++	// [com] ----
++	virtual FOnRender3DFinishDelegate& GetOnRender3DFinishDelegate() override { return OnRender3DFinishDelegate; }
++	// ---- [com]
+ private:
+ 	TSet<FSceneInterface*> AllocatedScenes;
+ 	FPostOpaqueRenderDelegate PostOpaqueRenderDelegate;
+ 	FPostOpaqueRenderDelegate OverlayRenderDelegate;
+ 	FOnResolvedSceneColor PostResolvedSceneColorCallbacks;
++
++	// [com] ----
++	FOnRender3DFinishDelegate OnRender3DFinishDelegate;
++	// ---- [com]
+ };
+ 
+ extern ICustomCulling* GCustomCullingImpl;
